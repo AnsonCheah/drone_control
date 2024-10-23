@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import gym
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 import mujoco
 import mujoco_viewer
 import os
@@ -14,15 +15,15 @@ np.set_printoptions(suppress=True, threshold=np.inf, linewidth=np.inf)
 RANGE_LIMIT = 1
 RANGE_BUFFER = 1
 RESOLUTION = 1
-GOAL_TOLERANCE = 0.1  # if the drone is within 0.1m of the goal, it is considered to have reached the goal
-FULL_THROTTLE = 7
+GOAL_TOLERANCE = 0.3  # if the drone is within 0.1m of the goal, it is considered to have reached the goal
+FULL_THROTTLE = 6
 DRONE_MODEL_PATH = os.path.join(os.getcwd(), "asset/skydio_x2/scene.xml")
 ROLL_TARGET = 5  # degrees
 PITCH_TARGET = 5  # degrees
 ROLL_THRESHOLD = 90  # degrees
 PITCH_THRESHOLD = 90  # degrees
 HEIGHT_LOWER_LIMIT = 0.05  # m
-IDLE_POSITION_THRESHOLD = 0.05  # m
+IDLE_POSITION_THRESHOLD = 0.1  # m
 GYRO_SMOOTH_THRESHOLD = 0.05  # Threshold for angular velocity (rad/s)
 ACC_SMOOTH_THRESHOLD = 0.1  # Threshold for linear acceleration (m/s^2)
 
@@ -72,6 +73,7 @@ class DroneControlGym(gym.Env):
         self.drone_motor_thrust = None
         self.drone_position = [0.0, 0.0, 0.0]
         self.drone_rpy = None
+        self.drone_mat = np.eye(4)
         self.last_drone_rpy = None
         self.last_drone_motor_thrust = None
         self.last_drone_position = [0.0, 0.0, 0.0]
@@ -87,7 +89,7 @@ class DroneControlGym(gym.Env):
             self.goal_pose = [
                 random.uniform(-RANGE_LIMIT / 2, RANGE_LIMIT / 2),
                 random.uniform(-RANGE_LIMIT / 2, RANGE_LIMIT / 2),
-                random.uniform(0.1, RANGE_LIMIT),
+                random.uniform(0.3, RANGE_LIMIT),
             ]
         else:
             self.goal_pose = goal_pose
@@ -102,9 +104,12 @@ class DroneControlGym(gym.Env):
 
     def _update_drone_data_from_sim(self):
         # Get the drone's current pose, orientation, and sensor readings from the simulation
-        rpy_angles = quaternion_to_rpy(self.drone.xquat[1])
-        self.drone_rpy = np.array(rpy_angles)
+        self.drone_rpy = np.array(quaternion_to_rpy(self.drone.xquat[1]))
+        self.drone_orientation = np.array(self.drone.xquat[1])
+        self.drone_rot_mat = np.array(quaternion_to_mat(self.drone.xquat[1]))
+        self.drone_mat[:3, :3] = self.drone_rot_mat
         self.drone_position = np.array(self.drone.xpos[1])
+        self.drone_mat[:3, 3] = self.drone_position
         self.drone_acc = self.drone.sensordata[self.acc_index : self.acc_index + 3]  # Accelerometer (x, y, z)
         self.drone_gyro = self.drone.sensordata[self.gyro_index : self.gyro_index + 3]  # Gyroscope (x, y, z)
 
@@ -119,7 +124,11 @@ class DroneControlGym(gym.Env):
 
     def _calculate_goal_attributes(self):
         # Calculate vector difference between goal and drone's current position
-        self.vector_to_goal = np.array(self.goal_pose) - np.array(self.drone_position)
+        # self.vector_to_goal = np.array(self.goal_pose) - np.array(self.drone_position)
+        goal_mat = np.eye(4)
+        goal_mat[:3, 3] = self.goal_pose
+        goal_in_drone = np.linalg.inv(self.drone_mat) @ goal_mat
+        self.vector_to_goal = goal_in_drone[:3, 3]
         self.distance_to_goal = np.linalg.norm(self.vector_to_goal)  # Calculate distance
         if self.distance_to_goal > 0:
             dx, dy, dz = self.vector_to_goal / self.distance_to_goal  # Normalize
@@ -233,7 +242,7 @@ class DroneControlGym(gym.Env):
             self.goal_pose = [
                 random.uniform(-RANGE_LIMIT / 2, RANGE_LIMIT / 2),
                 random.uniform(-RANGE_LIMIT / 2, RANGE_LIMIT / 2),
-                random.uniform(0.1, RANGE_LIMIT),
+                random.uniform(0.3, RANGE_LIMIT),
             ]
         else:
             self.goal_pose = goal_pose

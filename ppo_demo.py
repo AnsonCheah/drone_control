@@ -218,13 +218,13 @@ class Agent:
         self.memory.clear_memory()
 
 
-LOAD_MODEL = False
+LOAD_MODEL = True
 env = DroneControlGym(render=True)
 N = 20
 batch_size = 5
 n_epochs = 4
 alpha = 0.0003
-n_games = 1000
+n_games = 2000
 
 agent = Agent(
     n_actions=16,
@@ -245,7 +245,7 @@ n_steps = 0
 
 for i in range(n_games):
     observation = env.reset()
-    print(env.goal_pose)
+    # print(env.goal_pose)
     done = False
     score = 0
 
@@ -259,8 +259,8 @@ for i in range(n_games):
             agent.learn(i)
             learn_iters += 1
         observation = observation_
-        if n_steps > 500:
-            print("Terminated at 500 steps")
+        if n_steps > 300:
+            print("Terminated at 300 steps")
             done = True
     # env.render()
     score_history.append(score)
